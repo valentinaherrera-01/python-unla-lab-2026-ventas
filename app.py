@@ -7,10 +7,12 @@ from schema import (
     CarritoProductoResponse,
     CarritoResponse,
     CarritoUpdate,
+    CarritoVentaCreate,
     ProductoCreate,
     ProductoResponse,
     VentaCreate,
     VentaResponse,
+    VentaUpdate,
 )
 
 app = FastAPI(
@@ -18,6 +20,58 @@ app = FastAPI(
     description="API REST para gestionar ventas de productos - Seminario de Lenguajes Python (UNLa)",
     version="1.0.0",
 )
+
+
+def calcular_precio_total(venta: Venta) -> float:
+    if venta.id_carrito is not None:
+        carrito = db_session.get(Carrito, venta.id_carrito)
+        return round(sum(item.producto.precio * item.cantidad for item in carrito.productos), 2)
+
+    producto = db_session.get(Producto, venta.id_producto)
+    return round(producto.precio * venta.cantidad, 2)
+
+
+def carrito_asignado_a_otra_venta(id_carrito: int, venta_id: int | None = None) -> Venta | None:
+    consulta = Venta.query.filter_by(id_carrito=id_carrito)
+    if venta_id is not None:
+        consulta = consulta.filter(Venta.id != venta_id)
+    return consulta.first()
+
+
+def validar_carrito_para_vender(carrito_id: int, venta_id: int | None = None) -> Carrito:
+    carrito = db_session.get(Carrito, carrito_id)
+
+    if not carrito:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Carrito no encontrado")
+
+    if carrito_asignado_a_otra_venta(carrito_id, venta_id):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="El carrito ya se encuentra asociado a otra venta",
+        )
+
+    if carrito.estado != "cerrado":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Solo se puede asociar a una venta un carrito en estado 'cerrado'",
+        )
+
+    return carrito
+
+
+def validar_carrito_modificable(carrito_id: int) -> Carrito:
+    carrito = db_session.get(Carrito, carrito_id)
+
+    if not carrito:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Carrito no encontrado")
+
+    if carrito.venta is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Un carrito asociado a una venta no puede ser modificado ni eliminado",
+        )
+
+    return carrito
 
 
 @app.get("/")
@@ -138,21 +192,27 @@ async def eliminar_producto(producto_id: int):
         )
 
 
-@app.post("/ventas", status_code=status.HTTP_201_CREATED, response_model=VentaResponse)
+@app.post("/ventas", status_code=status.HTTP_201_CREATED, response_model=VentaResponse, response_model_exclude_none=True)
 async def crear_venta(venta_data: VentaCreate):
     try:
-        producto = db_session.get(Producto, venta_data.id_producto)
-
-        if not producto:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="El producto no existe")
-
         venta = Venta(
             fecha=venta_data.fecha,
             hora=venta_data.hora,
-            id_producto=venta_data.id_producto,
-            cantidad=venta_data.cantidad,
-            precio_total=(producto.precio * venta_data.cantidad),
         )
+
+        if venta_data.id_carrito is not None:
+            validar_carrito_para_vender(venta_data.id_carrito)
+            venta.id_carrito = venta_data.id_carrito
+        else:
+            producto = db_session.get(Producto, venta_data.id_producto)
+
+            if not producto:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="El producto no existe")
+
+            venta.id_producto = venta_data.id_producto
+            venta.cantidad = venta_data.cantidad
+
+        venta.precio_total = calcular_precio_total(venta)
 
         db_session.add(venta)
         db_session.commit()
@@ -169,7 +229,7 @@ async def crear_venta(venta_data: VentaCreate):
         )
 
 
-@app.get("/ventas", status_code=status.HTTP_200_OK, response_model=list[VentaResponse])
+@app.get("/ventas", status_code=status.HTTP_200_OK, response_model=list[VentaResponse], response_model_exclude_none=True)
 async def listar_ventas():
     try:
         ventas = Venta.query.all()
@@ -181,7 +241,7 @@ async def listar_ventas():
         )
 
 
-@app.get("/ventas/{venta_id}", status_code=status.HTTP_200_OK, response_model=VentaResponse)
+@app.get("/ventas/{venta_id}", status_code=status.HTTP_200_OK, response_model=VentaResponse, response_model_exclude_none=True)
 async def obtener_venta(venta_id: int):
     try:
         venta = db_session.get(Venta, venta_id)
@@ -199,24 +259,35 @@ async def obtener_venta(venta_id: int):
         )
 
 
-@app.put("/ventas/{venta_id}", status_code=status.HTTP_200_OK, response_model=VentaResponse)
-async def actualizar_venta(venta_id: int, venta_data: VentaCreate):
+@app.put("/ventas/{venta_id}", status_code=status.HTTP_200_OK, response_model=VentaResponse, response_model_exclude_none=True)
+async def actualizar_venta(venta_id: int, venta_data: VentaUpdate):
     try:
         venta = db_session.get(Venta, venta_id)
 
         if not venta:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Venta no encontrada")
 
-        producto = db_session.get(Producto, venta_data.id_producto)
+        if venta_data.fecha is not None:
+            venta.fecha = venta_data.fecha
+        if venta_data.hora is not None:
+            venta.hora = venta_data.hora
 
-        if not producto:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="El producto no existe")
+        if venta_data.id_carrito is not None:
+            validar_carrito_para_vender(venta_data.id_carrito, venta_id)
+            venta.id_carrito = venta_data.id_carrito
+            venta.id_producto = None
+            venta.cantidad = None
+        elif venta_data.id_producto is not None:
+            producto = db_session.get(Producto, venta_data.id_producto)
 
-        venta.fecha = venta_data.fecha
-        venta.hora = venta_data.hora
-        venta.id_producto = venta_data.id_producto
-        venta.cantidad = venta_data.cantidad
-        venta.precio_total = (producto.precio * venta_data.cantidad)
+            if not producto:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="El producto no existe")
+
+            venta.id_producto = venta_data.id_producto
+            venta.cantidad = venta_data.cantidad
+            venta.id_carrito = None
+
+        venta.precio_total = calcular_precio_total(venta)
 
         db_session.commit()
         db_session.refresh(venta)
@@ -229,6 +300,35 @@ async def actualizar_venta(venta_id: int, venta_data: VentaCreate):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Ocurrió un error al intentar actualizar la venta con id {venta_id}: {e}",
+        )
+
+
+@app.post("/ventas/{venta_id}/carrito", status_code=status.HTTP_200_OK, response_model=VentaResponse, response_model_exclude_none=True)
+async def asignar_carrito_a_venta(venta_id: int, carrito_data: CarritoVentaCreate):
+    try:
+        venta = db_session.get(Venta, venta_id)
+
+        if not venta:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Venta no encontrada")
+
+        validar_carrito_para_vender(carrito_data.id_carrito, venta_id)
+
+        venta.id_carrito = carrito_data.id_carrito
+        venta.id_producto = None
+        venta.cantidad = None
+        venta.precio_total = calcular_precio_total(venta)
+
+        db_session.commit()
+        db_session.refresh(venta)
+
+        return venta
+    except HTTPException:
+        raise
+    except Exception as e:
+        db_session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Ocurrió un error al intentar asignar el carrito a la venta con id {venta_id}: {e}",
         )
 
 
@@ -308,10 +408,7 @@ async def obtener_carrito(carrito_id: int):
 @app.put("/carritos/{carrito_id}", status_code=status.HTTP_200_OK, response_model=CarritoResponse)
 async def actualizar_carrito(carrito_id: int, carrito_data: CarritoUpdate):
     try:
-        carrito = db_session.get(Carrito, carrito_id)
-
-        if not carrito:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Carrito no encontrado")
+        carrito = validar_carrito_modificable(carrito_id)
 
         if carrito_data.fecha_creacion is not None:
             carrito.fecha_creacion = carrito_data.fecha_creacion
@@ -335,10 +432,7 @@ async def actualizar_carrito(carrito_id: int, carrito_data: CarritoUpdate):
 @app.delete("/carritos/{carrito_id}", status_code=status.HTTP_200_OK)
 async def eliminar_carrito(carrito_id: int):
     try:
-        carrito = db_session.get(Carrito, carrito_id)
-
-        if not carrito:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Carrito no encontrado")
+        carrito = validar_carrito_modificable(carrito_id)
 
         db_session.delete(carrito)
         db_session.commit()
@@ -361,6 +455,12 @@ async def agregar_producto_al_carrito(carrito_id: int, producto_data: CarritoPro
 
         if not carrito:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Carrito no encontrado")
+
+        if carrito.venta is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Un carrito asociado a una venta no puede ser modificado",
+            )
 
         if carrito.estado != "abierto":
             raise HTTPException(
@@ -408,6 +508,12 @@ async def quitar_producto_del_carrito(carrito_id: int, producto_id: int):
 
         if not carrito:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Carrito no encontrado")
+
+        if carrito.venta is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Un carrito asociado a una venta no puede ser modificado",
+            )
 
         if carrito.estado != "abierto":
             raise HTTPException(

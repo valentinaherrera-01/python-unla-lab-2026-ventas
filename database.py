@@ -23,6 +23,7 @@ class Carrito(Base):
     estado = Column(String(20), nullable=False)
 
     productos = relationship("CarritoProducto", back_populates="carrito", cascade="all, delete-orphan")
+    venta = relationship("Venta", back_populates="carrito", uselist=False)
 
 
 class CarritoProducto(Base):
@@ -43,11 +44,13 @@ class Venta(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     fecha = Column(Date, nullable=False)
     hora = Column(Time, nullable=False)
-    id_producto = Column(Integer, ForeignKey("productos.id"), nullable=False)
-    cantidad = Column(Integer, nullable=False)
+    id_producto = Column(Integer, ForeignKey("productos.id"), nullable=True)
+    cantidad = Column(Integer, nullable=True)
+    id_carrito = Column(Integer, ForeignKey("carritos.id"), unique=True, nullable=True)
     precio_total = Column(Float, nullable=False)
 
     producto = relationship("Producto")
+    carrito = relationship("Carrito", back_populates="venta", uselist=False)
 
 
 Base.metadata.create_all(engine)
