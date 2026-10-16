@@ -25,10 +25,10 @@ app = FastAPI(
 def calcular_precio_total(venta: Venta) -> float:
     if venta.id_carrito is not None:
         carrito = db_session.get(Carrito, venta.id_carrito)
-        return sum(item.producto.precio * item.cantidad for item in carrito.productos)
+        return round(sum(item.producto.precio * item.cantidad for item in carrito.productos), 2)
 
     producto = db_session.get(Producto, venta.id_producto)
-    return producto.precio * venta.cantidad
+    return round(producto.precio * venta.cantidad, 2)
 
 
 def carrito_asignado_a_otra_venta(id_carrito: int, venta_id: int | None = None) -> Venta | None:
