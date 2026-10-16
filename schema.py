@@ -1,6 +1,6 @@
 from datetime import date, time
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, field_serializer, field_validator
 
 
 class ProductoCreate(BaseModel):
@@ -58,3 +58,8 @@ class VentaResponse(BaseModel):
     precio_total: float
 
     model_config = ConfigDict(from_attributes=True)
+
+    @field_serializer("hora")
+    @classmethod
+    def serializar_hora(cls, value: time) -> str:
+        return value.strftime("%H:%M")
