@@ -15,6 +15,28 @@ class Producto(Base):
     precio = Column(Float, nullable=False)
 
 
+class Carrito(Base):
+    __tablename__ = "carritos"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    fecha_creacion = Column(Date, nullable=False)
+    estado = Column(String(20), nullable=False)
+
+    productos = relationship("CarritoProducto", back_populates="carrito", cascade="all, delete-orphan")
+
+
+class CarritoProducto(Base):
+    __tablename__ = "carrito_producto"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    id_carrito = Column(Integer, ForeignKey("carritos.id"), nullable=False)
+    id_producto = Column(Integer, ForeignKey("productos.id"), nullable=False)
+    cantidad = Column(Integer, nullable=False)
+
+    carrito = relationship("Carrito", back_populates="productos")
+    producto = relationship("Producto")
+
+
 class Venta(Base):
     __tablename__ = "ventas"
 
