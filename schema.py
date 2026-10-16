@@ -1,4 +1,6 @@
-from pydantic import BaseModel, ConfigDict, field_validator
+from datetime import date, time
+
+from pydantic import BaseModel, ConfigDict, field_serializer, field_validator
 
 
 class ProductoCreate(BaseModel):
@@ -29,3 +31,35 @@ class ProductoResponse(BaseModel):
     precio: float
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class VentaCreate(BaseModel):
+    fecha: date
+    hora: time
+    id_producto: int
+    cantidad: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+    @field_validator("cantidad")
+    @classmethod
+    def validar_cantidad(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError("La cantidad debe ser mayor a 0")
+        return value
+
+
+class VentaResponse(BaseModel):
+    id: int
+    fecha: date
+    hora: time
+    producto: ProductoResponse
+    cantidad: int
+    precio_total: float
+
+    model_config = ConfigDict(from_attributes=True)
+
+    @field_serializer("hora")
+    @classmethod
+    def serializar_hora(cls, value: time) -> str:
+        return value.strftime("%H:%M")
