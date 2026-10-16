@@ -1,6 +1,6 @@
 from datetime import date, time
 
-from pydantic import BaseModel, ConfigDict, field_serializer, field_validator
+from pydantic import BaseModel, ConfigDict, field_serializer, field_validator, model_validator
 
 
 class ProductoCreate(BaseModel):
@@ -36,33 +36,65 @@ class ProductoResponse(BaseModel):
 class VentaCreate(BaseModel):
     fecha: date
     hora: time
-    id_producto: int
-    cantidad: int
+    id_producto: int | None = None
+    cantidad: int | None = None
+    id_carrito: int | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
     @field_validator("cantidad")
     @classmethod
-    def validar_cantidad(cls, value: int) -> int:
-        if value <= 0:
+    def validar_cantidad(cls, value: int | None) -> int | None:
+        if value is not None and value <= 0:
             raise ValueError("La cantidad debe ser mayor a 0")
         return value
 
+    @model_validator(mode="after")
+    def validar_modo_venta(self):
+        modo_producto = self.id_producto is not None
+        modo_carrito = self.id_carrito is not None
 
-class VentaResponse(BaseModel):
-    id: int
-    fecha: date
-    hora: time
-    producto: ProductoResponse
-    cantidad: int
-    precio_total: float
+        if modo_producto == modo_carrito:
+            raise ValueError("Debe indicar id_producto y cantidad, o id_carrito (sólo uno de los dos)")
+        if modo_producto and self.cantidad is None:
+            raise ValueError("La cantidad es obligatoria al indicar id_producto")
+        return self
+
+
+class VentaUpdate(BaseModel):
+    fecha: date | None = None
+    hora: time | None = None
+    id_producto: int | None = None
+    cantidad: int | None = None
+    id_carrito: int | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
-    @field_serializer("hora")
+    @field_validator("cantidad")
     @classmethod
-    def serializar_hora(cls, value: time) -> str:
-        return value.strftime("%H:%M")
+    def validar_cantidad(cls, value: int | None) -> int | None:
+        if value is not None and value <= 0:
+            raise ValueError("La cantidad debe ser mayor a 0")
+        return value
+
+    @model_validator(mode="after")
+    def validar_modo_venta(self):
+        modo_producto = self.id_producto is not None
+        modo_carrito = self.id_carrito is not None
+
+        if modo_producto and modo_carrito:
+            raise ValueError("No puede indicar id_producto e id_carrito a la vez")
+        if modo_producto and self.cantidad is None:
+            raise ValueError("La cantidad es obligatoria al indicar id_producto")
+        if modo_carrito and self.cantidad is not None:
+            raise ValueError("No puede mezclar la venta directa con la venta por carrito")
+        return self
+
+
+class CarritoVentaCreate(BaseModel):
+    id_carrito: int
+
+    model_config = ConfigDict(from_attributes=True)
 
 
 class CarritoCreate(BaseModel):
@@ -126,3 +158,20 @@ class CarritoResponse(BaseModel):
     productos: list[CarritoProductoResponse]
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class VentaResponse(BaseModel):
+    id: int
+    fecha: date
+    hora: time
+    producto: ProductoResponse | None = None
+    cantidad: int | None = None
+    carrito: CarritoResponse | None = None
+    precio_total: float
+
+    model_config = ConfigDict(from_attributes=True)
+
+    @field_serializer("hora")
+    @classmethod
+    def serializar_hora(cls, value: time) -> str:
+        return value.strftime("%H:%M")
