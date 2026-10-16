@@ -116,6 +116,14 @@ async def eliminar_producto(producto_id: int):
         if not producto:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Producto no encontrado")
 
+        registrado_en_carrito = CarritoProducto.query.filter_by(id_producto=producto_id).first()
+
+        if registrado_en_carrito:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="No se puede eliminar un producto que este registrado en algun carrito",
+            )
+
         db_session.delete(producto)
         db_session.commit()
 
