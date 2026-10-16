@@ -1,7 +1,17 @@
 from fastapi import FastAPI, HTTPException, status
 
-from database import Producto, Venta, db_session
-from schema import ProductoCreate, ProductoResponse, VentaCreate, VentaResponse
+from database import Carrito, CarritoProducto, Producto, Venta, db_session
+from schema import (
+    CarritoCreate,
+    CarritoProductoCreate,
+    CarritoProductoResponse,
+    CarritoResponse,
+    CarritoUpdate,
+    ProductoCreate,
+    ProductoResponse,
+    VentaCreate,
+    VentaResponse,
+)
 
 app = FastAPI(
     title="API Ventas 2026",
@@ -233,4 +243,189 @@ async def eliminar_venta(venta_id: int):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Ocurrió un error al intentar eliminar la venta con id {venta_id}: {e}",
+        )
+
+
+@app.post("/carritos", status_code=status.HTTP_201_CREATED, response_model=CarritoResponse)
+async def crear_carrito(carrito_data: CarritoCreate):
+    try:
+        carrito = Carrito(
+            fecha_creacion=carrito_data.fecha_creacion,
+            estado=carrito_data.estado,
+        )
+
+        db_session.add(carrito)
+        db_session.commit()
+        db_session.refresh(carrito)
+
+        return carrito
+    except Exception as e:
+        db_session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Ocurrió un error al intentar crear el carrito: {e}",
+        )
+
+
+@app.get("/carritos", status_code=status.HTTP_200_OK, response_model=list[CarritoResponse])
+async def listar_carritos():
+    try:
+        carritos = Carrito.query.all()
+        return carritos
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Ocurrió un error al intentar obtener los carritos: {e}",
+        )
+
+
+@app.get("/carritos/{carrito_id}", status_code=status.HTTP_200_OK, response_model=CarritoResponse)
+async def obtener_carrito(carrito_id: int):
+    try:
+        carrito = db_session.get(Carrito, carrito_id)
+
+        if not carrito:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Carrito no encontrado")
+
+        return carrito
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Ocurrió un error al intentar obtener el carrito con id {carrito_id}: {e}",
+        )
+
+
+@app.put("/carritos/{carrito_id}", status_code=status.HTTP_200_OK, response_model=CarritoResponse)
+async def actualizar_carrito(carrito_id: int, carrito_data: CarritoUpdate):
+    try:
+        carrito = db_session.get(Carrito, carrito_id)
+
+        if not carrito:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Carrito no encontrado")
+
+        if carrito_data.fecha_creacion is not None:
+            carrito.fecha_creacion = carrito_data.fecha_creacion
+        if carrito_data.estado is not None:
+            carrito.estado = carrito_data.estado
+
+        db_session.commit()
+        db_session.refresh(carrito)
+
+        return carrito
+    except HTTPException:
+        raise
+    except Exception as e:
+        db_session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Ocurrió un error al intentar actualizar el carrito con id {carrito_id}: {e}",
+        )
+
+
+@app.delete("/carritos/{carrito_id}", status_code=status.HTTP_200_OK)
+async def eliminar_carrito(carrito_id: int):
+    try:
+        carrito = db_session.get(Carrito, carrito_id)
+
+        if not carrito:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Carrito no encontrado")
+
+        db_session.delete(carrito)
+        db_session.commit()
+
+        return {"message": f"Carrito con id {carrito_id} eliminado"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        db_session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Ocurrió un error al intentar eliminar el carrito con id {carrito_id}: {e}",
+        )
+
+
+@app.post("/carritos/{carrito_id}/productos", status_code=status.HTTP_201_CREATED, response_model=CarritoProductoResponse)
+async def agregar_producto_al_carrito(carrito_id: int, producto_data: CarritoProductoCreate):
+    try:
+        carrito = db_session.get(Carrito, carrito_id)
+
+        if not carrito:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Carrito no encontrado")
+
+        if carrito.estado != "abierto":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Solo se pueden agregar productos a un carrito abierto",
+            )
+
+        producto = db_session.get(Producto, producto_data.id_producto)
+
+        if not producto:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="El producto no existe")
+
+        carrito_producto = CarritoProducto.query.filter_by(
+            id_carrito=carrito_id, id_producto=producto_data.id_producto
+        ).first()
+
+        if carrito_producto:
+            carrito_producto.cantidad += producto_data.cantidad
+        else:
+            carrito_producto = CarritoProducto(
+                id_carrito=carrito_id,
+                id_producto=producto_data.id_producto,
+                cantidad=producto_data.cantidad,
+            )
+            db_session.add(carrito_producto)
+
+        db_session.commit()
+        db_session.refresh(carrito_producto)
+
+        return carrito_producto
+    except HTTPException:
+        raise
+    except Exception as e:
+        db_session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Ocurrió un error al intentar agregar el producto al carrito: {e}",
+        )
+
+
+@app.delete("/carritos/{carrito_id}/productos/{producto_id}", status_code=status.HTTP_200_OK)
+async def quitar_producto_del_carrito(carrito_id: int, producto_id: int):
+    try:
+        carrito = db_session.get(Carrito, carrito_id)
+
+        if not carrito:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Carrito no encontrado")
+
+        if carrito.estado != "abierto":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Solo se pueden quitar productos de un carrito abierto",
+            )
+
+        carrito_producto = CarritoProducto.query.filter_by(
+            id_carrito=carrito_id, id_producto=producto_id
+        ).first()
+
+        if not carrito_producto:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="El producto no se encuentra en el carrito",
+            )
+
+        db_session.delete(carrito_producto)
+        db_session.commit()
+
+        return {"message": f"Producto con id {producto_id} quitado del carrito con id {carrito_id}"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        db_session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Ocurrió un error al intentar quitar el producto del carrito: {e}",
         )
