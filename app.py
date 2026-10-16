@@ -192,7 +192,7 @@ async def eliminar_producto(producto_id: int):
         )
 
 
-@app.post("/ventas", status_code=status.HTTP_201_CREATED, response_model=VentaResponse)
+@app.post("/ventas", status_code=status.HTTP_201_CREATED, response_model=VentaResponse, response_model_exclude_none=True)
 async def crear_venta(venta_data: VentaCreate):
     try:
         venta = Venta(
@@ -229,7 +229,7 @@ async def crear_venta(venta_data: VentaCreate):
         )
 
 
-@app.get("/ventas", status_code=status.HTTP_200_OK, response_model=list[VentaResponse])
+@app.get("/ventas", status_code=status.HTTP_200_OK, response_model=list[VentaResponse], response_model_exclude_none=True)
 async def listar_ventas():
     try:
         ventas = Venta.query.all()
@@ -241,7 +241,7 @@ async def listar_ventas():
         )
 
 
-@app.get("/ventas/{venta_id}", status_code=status.HTTP_200_OK, response_model=VentaResponse)
+@app.get("/ventas/{venta_id}", status_code=status.HTTP_200_OK, response_model=VentaResponse, response_model_exclude_none=True)
 async def obtener_venta(venta_id: int):
     try:
         venta = db_session.get(Venta, venta_id)
@@ -259,7 +259,7 @@ async def obtener_venta(venta_id: int):
         )
 
 
-@app.put("/ventas/{venta_id}", status_code=status.HTTP_200_OK, response_model=VentaResponse)
+@app.put("/ventas/{venta_id}", status_code=status.HTTP_200_OK, response_model=VentaResponse, response_model_exclude_none=True)
 async def actualizar_venta(venta_id: int, venta_data: VentaUpdate):
     try:
         venta = db_session.get(Venta, venta_id)
@@ -303,7 +303,7 @@ async def actualizar_venta(venta_id: int, venta_data: VentaUpdate):
         )
 
 
-@app.post("/ventas/{venta_id}/carrito", status_code=status.HTTP_200_OK, response_model=VentaResponse)
+@app.post("/ventas/{venta_id}/carrito", status_code=status.HTTP_200_OK, response_model=VentaResponse, response_model_exclude_none=True)
 async def asignar_carrito_a_venta(venta_id: int, carrito_data: CarritoVentaCreate):
     try:
         venta = db_session.get(Venta, venta_id)
